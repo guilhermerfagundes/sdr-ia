@@ -1,0 +1,17 @@
+# Segredos e credenciais (NUNCA enviar para o GitHub)
+.env
+auth_config.yaml
+.streamlit/secrets.toml
+
+# Dados locais e gerados
+data/
+logs/
+reports/
+exports/ultimo_import.csv
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/

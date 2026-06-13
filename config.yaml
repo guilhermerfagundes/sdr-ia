@@ -1,0 +1,46 @@
+# ============================================================
+#  CONFIGURAÇÃO DO SDR IA — edite com calma, é só texto.
+#  Você também pode editar tudo isto pela aba "Configurações"
+#  do dashboard, sem mexer neste arquivo.
+# ============================================================
+
+captacao:
+  leads_por_dia: 30              # quantos leads buscar por dia (limite de segurança)
+  dias_semana:                   # dias em que a captação deve rodar
+    - segunda
+    - terca
+    - quarta
+    - quinta
+    - sexta
+  horario_inicial: "09:00"       # início da janela de trabalho
+  horario_final: "18:00"         # fim da janela de trabalho
+  intervalo_min_seg: 60          # intervalo mínimo entre ações (segundos)
+  intervalo_max_seg: 300         # intervalo máximo entre ações (segundos)
+
+# Segmentos (nichos) que você quer prospectar
+segmentos:
+  - dentista
+  - advogado
+  - clinica estetica
+  - contabilidade
+  - arquiteto
+
+# Cidades/estados onde buscar
+cidades:
+  - { cidade: "Osasco", estado: "SP" }
+  - { cidade: "Barueri", estado: "SP" }
+  - { cidade: "Alphaville", estado: "SP" }
+
+scoring:
+  score_minimo: 40               # leads abaixo disto são marcados como "não prospectar"
+
+# Empresas que contenham estas palavras no nome/categoria são DESCARTADAS.
+# (regra do ICP: não prospectar concorrentes nem perfis sem fit)
+exclusoes:
+  palavras_chave:
+    - "agência de marketing"
+    - "agencia de marketing"
+    - "marketing digital"
+    - "assessoria de marketing"
+    - "freelancer"
+    - "social media"
