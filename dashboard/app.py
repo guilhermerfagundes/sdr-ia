@@ -37,6 +37,35 @@ from backend.modules import crm, lead_finder, reporting  # noqa: E402
 
 st.set_page_config(page_title="SDR IA — Painel", page_icon="🎯", layout="wide")
 
+st.markdown(
+    """
+    <style>
+      .block-container { padding-top: 2.2rem; max-width: 1300px; }
+      /* Cabeçalho */
+      .hero {
+        background: linear-gradient(110deg, #1e3a8a 0%, #2563eb 55%, #3b82f6 100%);
+        color: #fff; padding: 22px 28px; border-radius: 16px; margin-bottom: 18px;
+        box-shadow: 0 8px 24px rgba(37,99,235,.25);
+      }
+      .hero h1 { color:#fff; font-size: 1.9rem; font-weight: 800; margin: 0; }
+      .hero p  { color:#dbeafe; margin: 4px 0 0; font-size: .98rem; }
+      /* Cartões de métrica */
+      [data-testid="stMetric"] {
+        background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px;
+        padding: 14px 16px;
+      }
+      [data-testid="stMetricValue"] { font-size: 1.7rem; font-weight: 700; color:#1e293b; }
+      [data-testid="stMetricLabel"] { color:#64748b; }
+      /* Abas */
+      button[data-baseweb="tab"] { font-size: 1rem; }
+      /* Sidebar */
+      [data-testid="stSidebar"] { background: #0f172a; }
+      [data-testid="stSidebar"] * { color:#e2e8f0 !important; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 @st.cache_resource
 def get_engine():
@@ -55,7 +84,11 @@ with st.sidebar:
     authenticator.logout("Sair", "sidebar")
     st.caption("Banco: " + ("Postgres (nuvem)" if os.getenv("DATABASE_URL") else "SQLite (local)"))
 
-st.title("🎯 SDR IA — Painel de Prospecção")
+st.markdown(
+    '<div class="hero"><h1>🎯 SDR IA</h1>'
+    "<p>Painel de prospecção B2B — encontre, qualifique e gerencie seus leads</p></div>",
+    unsafe_allow_html=True,
+)
 
 if not config.tem_chave_google():
     st.warning(
@@ -113,7 +146,26 @@ with abas[1]:
             ["id", "empresa", "telefone", "site", "cidade", "segmento", "score",
              "status", "oportunidade_motivo"]
         ]
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "id": st.column_config.NumberColumn("ID", width="small"),
+                "empresa": st.column_config.TextColumn("Empresa", width="medium"),
+                "telefone": st.column_config.TextColumn("Telefone"),
+                "site": st.column_config.LinkColumn("Site", display_text="abrir"),
+                "cidade": st.column_config.TextColumn("Cidade"),
+                "segmento": st.column_config.TextColumn("Segmento"),
+                "score": st.column_config.ProgressColumn(
+                    "Score", min_value=0, max_value=100, format="%d"
+                ),
+                "status": st.column_config.TextColumn("Status"),
+                "oportunidade_motivo": st.column_config.TextColumn(
+                    "Oportunidade de abordagem", width="large"
+                ),
+            },
+        )
 
         st.markdown("#### Mover lead no pipeline")
         ids = [r["id"] for r in rows]
