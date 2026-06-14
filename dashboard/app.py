@@ -33,7 +33,7 @@ from dashboard.auth import exigir_login  # noqa: E402
 from backend.config import config  # noqa: E402
 from backend.database import db  # noqa: E402
 from backend.database import repository  # noqa: E402
-from backend.modules import crm, lead_finder, reporting  # noqa: E402
+from backend.modules import crm, lead_finder, message_generator, reporting  # noqa: E402
 
 st.set_page_config(page_title="DemandOS AI", page_icon="🧭", layout="wide")
 
@@ -103,7 +103,8 @@ if "busca_result" in st.session_state:
         st.balloons()
 
 abas = st.tabs(
-    ["📊 Visão geral", "📋 Leads", "🔎 Buscar leads", "📥 Importar CSV", "📈 Relatórios", "⚙️ Configurações"]
+    ["📊 Visão geral", "📋 Leads", "💬 Abordagem", "🔎 Buscar leads", "📥 Importar CSV",
+     "📈 Relatórios", "⚙️ Configurações"]
 )
 
 # ---------------------------------------------------------------- Visão geral
@@ -191,8 +192,54 @@ with abas[1]:
     else:
         st.info("Nenhum lead com esses filtros.")
 
-# --------------------------------------------------------------- Buscar leads
+# ----------------------------------------------------------------- Abordagem
 with abas[2]:
+    st.subheader("💬 Abordagem — fila pronta pra enviar")
+    st.caption(
+        "O DemandOS escreve uma mensagem personalizada pra cada lead qualificado. "
+        "Revise, ajuste se quiser e clique em **Abrir no WhatsApp** — a mensagem já "
+        "vai digitada; você só aperta enviar. **Nada é enviado sozinho** (seu número fica seguro)."
+    )
+
+    cmsg = cfg.get("mensagem", {})
+    leads_abordagem = [
+        r for r in repository.listar_leads(engine, score_min=cfg["scoring"]["score_minimo"])
+        if r["status"] in ("Novo Lead", "Qualificado")
+        and (r["telefone"] or r["whatsapp"])
+    ]
+
+    if not leads_abordagem:
+        st.info(
+            "Nenhum lead na fila ainda. Use a aba **🔎 Buscar leads** pra encontrar empresas "
+            "(só entram aqui leads com telefone e score acima do mínimo)."
+        )
+    else:
+        st.write(f"**{len(leads_abordagem)}** leads prontos para abordagem:")
+        for r in leads_abordagem[:25]:
+            lead = dict(r)
+            with st.container(border=True):
+                c1, c2 = st.columns([3, 1])
+                c1.markdown(f"**{lead['empresa']}** · {lead.get('cidade','')} · score {lead['score']}")
+                c1.caption(f"📞 {lead.get('telefone') or lead.get('whatsapp')} · {lead.get('oportunidade_motivo','')}")
+                msg = st.text_area(
+                    "Mensagem",
+                    value=message_generator.gerar_mensagem(lead, {"mensagem": cmsg}),
+                    key=f"msg_{lead['id']}",
+                    height=140,
+                    label_visibility="collapsed",
+                )
+                link = message_generator.link_whatsapp(lead, msg)
+                b1, b2 = st.columns([1, 1])
+                if link:
+                    b1.link_button("📱 Abrir no WhatsApp", link, use_container_width=True)
+                else:
+                    b1.button("📱 Sem WhatsApp válido", disabled=True, key=f"nowa_{lead['id']}", use_container_width=True)
+                if b2.button("✅ Marquei como enviado", key=f"sent_{lead['id']}", use_container_width=True):
+                    crm.mover_status(engine, lead["id"], "Contato Enviado", "Abordagem via WhatsApp")
+                    st.rerun()
+
+# --------------------------------------------------------------- Buscar leads
+with abas[3]:
     st.subheader("🔎 Buscar leads em tempo real")
     st.caption(
         "Escolha o segmento e a cidade e clique em **Buscar agora**. O DemandOS vai "
@@ -224,7 +271,7 @@ with abas[2]:
         st.rerun()
 
 # -------------------------------------------------------------- Importar CSV
-with abas[3]:
+with abas[4]:
     st.subheader("Importar leads de um CSV")
     st.caption(
         "Colunas reconhecidas automaticamente: empresa/nome, telefone, whatsapp, "
@@ -244,7 +291,7 @@ with abas[3]:
         )
 
 # ---------------------------------------------------------------- Relatórios
-with abas[4]:
+with abas[5]:
     st.subheader("Relatório diário")
     if st.button("Gerar relatório de hoje"):
         m = reporting.gerar_relatorio_diario(engine)
@@ -257,7 +304,7 @@ with abas[4]:
         st.info("Nenhum relatório gerado ainda.")
 
 # ------------------------------------------------------------- Configurações
-with abas[5]:
+with abas[6]:
     st.subheader("Configurações")
     st.caption("Alterações aqui são salvas no config.yaml.")
     cap = cfg["captacao"]
@@ -275,12 +322,21 @@ with abas[5]:
         "Exclusões (palavras-chave, uma por linha)",
         "\n".join(cfg.get("exclusoes", {}).get("palavras_chave", [])),
     )
+
+    st.markdown("##### ✍️ Mensagem de abordagem")
+    cmsg = cfg.get("mensagem", {})
+    m1, m2 = st.columns(2)
+    remetente = m1.text_input("Seu nome (como você assina)", cmsg.get("remetente", ""))
+    agencia = m2.text_input("Nome da agência (opcional)", cmsg.get("agencia", ""))
+    proposta = st.text_input("O que você oferece", cmsg.get("proposta", "atrair mais clientes pela internet"))
+
     if st.button("💾 Salvar configurações"):
         novo = dict(cfg)
         novo["captacao"]["leads_por_dia"] = int(leads_dia)
         novo["captacao"]["horario_inicial"] = h1
         novo["captacao"]["horario_final"] = h2
         novo["scoring"]["score_minimo"] = int(score_min)
+        novo["mensagem"] = {"remetente": remetente, "agencia": agencia, "proposta": proposta}
         novo["segmentos"] = [s.strip() for s in segmentos_txt.splitlines() if s.strip()]
         cidades = []
         for linha in cidades_txt.splitlines():

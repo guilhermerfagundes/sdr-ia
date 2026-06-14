@@ -34,6 +34,12 @@ cidades:
 scoring:
   score_minimo: 40               # leads abaixo disto são marcados como "não prospectar"
 
+# Dados usados nas mensagens de abordagem (modo semi-automático)
+mensagem:
+  remetente: "Guilherme"                                  # como você assina
+  agencia: "DemandOS"                                     # nome da sua agência (ou deixe vazio)
+  proposta: "atrair mais clientes pela internet"          # o que você oferece
+
 # Empresas que contenham estas palavras no nome/categoria são DESCARTADAS.
 # (regra do ICP: não prospectar concorrentes nem perfis sem fit)
 exclusoes:

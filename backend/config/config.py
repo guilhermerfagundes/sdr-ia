@@ -72,6 +72,11 @@ _DEFAULT_CONFIG = {
     "cidades": [],
     "scoring": {"score_minimo": 40},
     "exclusoes": {"palavras_chave": []},
+    "mensagem": {
+        "remetente": "Guilherme",
+        "agencia": "DemandOS",
+        "proposta": "atrair mais clientes pela internet",
+    },
 }
 
 
