@@ -29,7 +29,7 @@ for _chave in ("DATABASE_URL", "GOOGLE_PLACES_API_KEY"):
 
 import pandas as pd  # noqa: E402
 
-from auth import exigir_login  # noqa: E402
+from dashboard.auth import exigir_login  # noqa: E402
 from backend.config import config  # noqa: E402
 from backend.database import db  # noqa: E402
 from backend.database import repository  # noqa: E402
@@ -154,7 +154,7 @@ with abas[1]:
         ]
         st.dataframe(
             df,
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={
                 "id": st.column_config.NumberColumn("ID", width="small"),
