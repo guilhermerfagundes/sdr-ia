@@ -59,14 +59,6 @@ def exigir_login():
         cfg["cookie"]["key"],
         cfg["cookie"].get("expiry_days", 30),
     )
-    if not st.session_state.get("authentication_status"):
-        st.markdown(
-            "<div style='text-align:center;margin:8px 0 4px'>"
-            "<h1 style='margin:0'>🧭 DemandOS AI</h1>"
-            "<p style='color:#64748b;margin:4px 0 18px'>Seu sistema operacional de geração de demanda</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
     authenticator.login(location="main")
 
     status = st.session_state.get("authentication_status")

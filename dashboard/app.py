@@ -90,6 +90,18 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Resultado da última busca — mostrado no topo (sempre visível, mesmo que a aba
+# volte para "Visão geral" depois de processar).
+if "busca_result" in st.session_state:
+    r = st.session_state.pop("busca_result")
+    st.success(
+        f"✅ Busca de **{r['seg']}** em **{r['cidade']}**: encontrados "
+        f"{r['encontrados']} · novos {r['novos']} · atualizados {r['atualizados']} · "
+        f"descartados {r['descartados']}. Os leads estão na aba **📋 Leads**."
+    )
+    if r.get("novos"):
+        st.balloons()
+
 abas = st.tabs(
     ["📊 Visão geral", "📋 Leads", "🔎 Buscar leads", "📥 Importar CSV", "📈 Relatórios", "⚙️ Configurações"]
 )
@@ -206,13 +218,10 @@ with abas[2]:
                 resumo = lead_finder.buscar_google_places(engine, seg, cidade, estado, int(limite))
             else:
                 resumo = lead_finder.buscar_openstreetmap(engine, seg, cidade, estado, int(limite))
-        st.success(
-            f"✅ Encontrados {resumo['encontrados']} · novos {resumo['novos']} · "
-            f"atualizados {resumo['atualizados']} · descartados {resumo['descartados']}"
-        )
-        if resumo["novos"]:
-            st.balloons()
-        st.info("Veja os resultados na aba **📋 Leads**.")
+        resumo["seg"] = seg
+        resumo["cidade"] = cidade
+        st.session_state["busca_result"] = resumo
+        st.rerun()
 
 # -------------------------------------------------------------- Importar CSV
 with abas[3]:
