@@ -74,7 +74,7 @@ _DEFAULT_CONFIG = {
     "exclusoes": {"palavras_chave": []},
     "mensagem": {
         "remetente": "Guilherme",
-        "agencia": "DemandOS",
+        "cargo": "estrategista de marketing",
         "proposta": "atrair mais clientes pela internet",
     },
 }

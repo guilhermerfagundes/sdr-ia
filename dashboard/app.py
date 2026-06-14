@@ -103,8 +103,8 @@ if "busca_result" in st.session_state:
         st.balloons()
 
 abas = st.tabs(
-    ["📊 Visão geral", "📋 Leads", "💬 Abordagem", "🔎 Buscar leads", "📥 Importar CSV",
-     "📈 Relatórios", "⚙️ Configurações"]
+    ["📊 Visão geral", "📋 Leads", "📌 Pipeline", "💬 Abordagem", "🔎 Buscar leads",
+     "📥 Importar CSV", "📈 Relatórios", "⚙️ Configurações"]
 )
 
 # ---------------------------------------------------------------- Visão geral
@@ -149,9 +149,13 @@ with abas[1]:
         score_min=f_score,
     )
     if rows:
-        df = pd.DataFrame(rows)[
+        df = pd.DataFrame(rows)
+        for col in ("tags",):
+            if col not in df.columns:
+                df[col] = ""
+        df = df[
             ["id", "empresa", "telefone", "site", "cidade", "segmento", "score",
-             "status", "oportunidade_motivo"]
+             "status", "tags", "oportunidade_motivo"]
         ]
         st.dataframe(
             df,
@@ -168,6 +172,7 @@ with abas[1]:
                     "Score", min_value=0, max_value=100, format="%d"
                 ),
                 "status": st.column_config.TextColumn("Status"),
+                "tags": st.column_config.TextColumn("🏷️ Etiquetas"),
                 "oportunidade_motivo": st.column_config.TextColumn(
                     "Oportunidade de abordagem", width="large"
                 ),
@@ -189,11 +194,62 @@ with abas[1]:
                 st.rerun()
         else:
             st.info("Este lead está em estágio final (Fechado).")
+
+        st.markdown("#### 🏷️ Etiquetas do lead")
+        st.caption("Separe por vírgula. Ex.: quente, retornar, indicação")
+        tags_novo = st.text_input("Etiquetas", lead.get("tags") or "", key=f"tags_{sel}")
+        if st.button("Salvar etiquetas"):
+            repository.atualizar_campos(engine, sel, {"tags": tags_novo.strip()})
+            st.success("Etiquetas salvas.")
+            st.rerun()
     else:
         st.info("Nenhum lead com esses filtros.")
 
-# ----------------------------------------------------------------- Abordagem
+# ------------------------------------------------------------------ Pipeline
 with abas[2]:
+    st.subheader("📌 Pipeline — arraste os leads entre as etapas")
+    st.caption(
+        "Arraste cada lead para a próxima etapa do funil — as mudanças salvam sozinhas. "
+        "(Leads aprovados na Abordagem já entram em *Contato Enviado* automaticamente.)"
+    )
+    leads_all = repository.listar_leads(engine)
+    if not leads_all:
+        st.info("Nenhum lead ainda. Use a aba **🔎 Buscar leads** para começar.")
+    else:
+        try:
+            from streamlit_sortables import sort_items
+
+            id_por_rotulo = {}
+            colunas = []
+            for etapa in crm.TODOS_STATUS:
+                itens = []
+                for l in leads_all:
+                    if (l["status"] or "Novo Lead") == etapa:
+                        rotulo = f"#{l['id']} {l['empresa']} · {l['score']}"
+                        itens.append(rotulo)
+                        id_por_rotulo[rotulo] = l["id"]
+                colunas.append({"header": f"{etapa} ({len(itens)})", "items": itens})
+
+            novo = sort_items(colunas, multi_containers=True, key="kanban_pipeline")
+
+            for col in novo:
+                etapa = col["header"].rsplit(" (", 1)[0]
+                for rotulo in col["items"]:
+                    lid = id_por_rotulo.get(rotulo)
+                    if lid:
+                        atual = repository.obter_lead(engine, lid)
+                        if atual and (atual["status"] or "Novo Lead") != etapa:
+                            repository.atualizar_campos(
+                                engine, lid, {"status": etapa, "ultima_acao": f"Movido para {etapa}"}
+                            )
+        except ModuleNotFoundError:
+            st.warning(
+                "O componente de arrastar não está disponível nesta versão. "
+                "Você ainda pode mover os leads pela aba **📋 Leads**."
+            )
+
+# ----------------------------------------------------------------- Abordagem
+with abas[3]:
     st.subheader("💬 Abordagem — fila pronta pra enviar")
     st.caption(
         "O DemandOS escreve uma mensagem personalizada pra cada lead qualificado. "
@@ -231,7 +287,14 @@ with abas[2]:
                 link = message_generator.link_whatsapp(lead, msg)
                 b1, b2 = st.columns([1, 1])
                 if link:
-                    b1.link_button("📱 Abrir no WhatsApp", link, use_container_width=True)
+                    # target="zap" reaproveita SEMPRE a mesma aba do WhatsApp Web
+                    # (não abre uma aba nova a cada lead).
+                    b1.markdown(
+                        f'<a href="{link}" target="zap" style="display:block;text-align:center;'
+                        f"background:#25D366;color:#fff;padding:9px 0;border-radius:8px;"
+                        f'font-weight:600;text-decoration:none">📱 Abrir conversa no WhatsApp</a>',
+                        unsafe_allow_html=True,
+                    )
                 else:
                     b1.button("📱 Sem WhatsApp válido", disabled=True, key=f"nowa_{lead['id']}", use_container_width=True)
                 if b2.button("✅ Marquei como enviado", key=f"sent_{lead['id']}", use_container_width=True):
@@ -239,39 +302,70 @@ with abas[2]:
                     st.rerun()
 
 # --------------------------------------------------------------- Buscar leads
-with abas[3]:
+with abas[4]:
     st.subheader("🔎 Buscar leads em tempo real")
     st.caption(
-        "Escolha o segmento e a cidade e clique em **Buscar agora**. O DemandOS vai "
-        "encontrar empresas reais, analisar o site de cada uma, pontuar e salvar — "
-        "evitando duplicados automaticamente."
+        "Escolha o segmento, a cidade e **quantos leads** quer; clique em **Buscar agora**. "
+        "O DemandOS encontra empresas reais, analisa o site, pontua, deduplica e salva."
     )
     segmentos = cfg.get("segmentos", [])
-    cidades = [f"{c['cidade']}/{c['estado']}" for c in cfg.get("cidades", [])]
+    cidades_cfg = cfg.get("cidades", [])
+    cidades = [f"{c['cidade']}/{c['estado']}" for c in cidades_cfg]
     fontes = ["OpenStreetMap (grátis)"]
     if config.tem_chave_google():
         fontes.append("Google Maps")
 
-    cg0, cg1, cg2, cg3 = st.columns([1.6, 1.2, 1.2, 0.8])
+    cg0, cg1, cg2, cg3 = st.columns([1.5, 1.2, 1.2, 1.1])
     fonte = cg0.selectbox("Fonte", fontes)
     seg = cg1.selectbox("Segmento", segmentos or ["(defina em Configurações)"])
     cidade_sel = cg2.selectbox("Cidade", cidades or ["(defina em Configurações)"])
-    limite = cg3.number_input("Máx.", 1, 60, 15)
+    limite = cg3.number_input("Quantos leads buscar", 1, 60, 15)
+
+    _usa_google = fonte.startswith("Google")
+
+    def _buscar(s, ci, uf, n):
+        if _usa_google:
+            return lead_finder.buscar_google_places(engine, s, ci, uf, n)
+        return lead_finder.buscar_openstreetmap(engine, s, ci, uf, n)
 
     if st.button("🚀 Buscar agora", type="primary", disabled=not (segmentos and cidades)):
         cidade, estado = (cidade_sel.split("/") + [""])[:2]
         with st.spinner(f"Buscando '{seg}' em {cidade} e analisando os sites em tempo real..."):
-            if fonte.startswith("Google"):
-                resumo = lead_finder.buscar_google_places(engine, seg, cidade, estado, int(limite))
-            else:
-                resumo = lead_finder.buscar_openstreetmap(engine, seg, cidade, estado, int(limite))
+            resumo = _buscar(seg, cidade, estado, int(limite))
         resumo["seg"] = seg
         resumo["cidade"] = cidade
         st.session_state["busca_result"] = resumo
         st.rerun()
 
+    st.divider()
+    st.markdown("##### ⚡ Busca em lote — varre todos os seus segmentos e cidades")
+    st.caption("Diga quantos leads NOVOS você quer e o DemandOS vai buscando em tudo até alcançar.")
+    alvo = st.number_input("Quantos leads novos trazer", 5, 100, 20, key="alvo_lote")
+    if st.button("⚡ Buscar em lote", disabled=not (segmentos and cidades)):
+        prog = st.progress(0.0, text="Iniciando...")
+        total = {"encontrados": 0, "novos": 0, "atualizados": 0, "descartados": 0}
+        combos = [(s, c) for c in cidades_cfg for s in segmentos]
+        for s, c in combos:
+            if total["novos"] >= alvo:
+                break
+            prog.progress(
+                min(total["novos"] / alvo, 0.99),
+                text=f"Buscando {s} em {c['cidade']}... ({total['novos']}/{alvo} novos)",
+            )
+            try:
+                r = _buscar(s, c["cidade"], c["estado"], min(int(alvo), 12))
+                for k in total:
+                    total[k] += r.get(k, 0)
+            except Exception as e:  # noqa: BLE001
+                st.warning(f"Pulei {s} em {c['cidade']}: {e}")
+        prog.progress(1.0, text="Concluído!")
+        total["seg"] = "vários segmentos"
+        total["cidade"] = "todas as suas cidades"
+        st.session_state["busca_result"] = total
+        st.rerun()
+
 # -------------------------------------------------------------- Importar CSV
-with abas[4]:
+with abas[5]:
     st.subheader("Importar leads de um CSV")
     st.caption(
         "Colunas reconhecidas automaticamente: empresa/nome, telefone, whatsapp, "
@@ -291,7 +385,7 @@ with abas[4]:
         )
 
 # ---------------------------------------------------------------- Relatórios
-with abas[5]:
+with abas[6]:
     st.subheader("Relatório diário")
     if st.button("Gerar relatório de hoje"):
         m = reporting.gerar_relatorio_diario(engine)
@@ -304,7 +398,7 @@ with abas[5]:
         st.info("Nenhum relatório gerado ainda.")
 
 # ------------------------------------------------------------- Configurações
-with abas[6]:
+with abas[7]:
     st.subheader("Configurações")
     st.caption("Alterações aqui são salvas no config.yaml.")
     cap = cfg["captacao"]
@@ -327,7 +421,7 @@ with abas[6]:
     cmsg = cfg.get("mensagem", {})
     m1, m2 = st.columns(2)
     remetente = m1.text_input("Seu nome (como você assina)", cmsg.get("remetente", ""))
-    agencia = m2.text_input("Nome da agência (opcional)", cmsg.get("agencia", ""))
+    cargo = m2.text_input("Seu cargo/título", cmsg.get("cargo", "estrategista de marketing"))
     proposta = st.text_input("O que você oferece", cmsg.get("proposta", "atrair mais clientes pela internet"))
 
     if st.button("💾 Salvar configurações"):
@@ -336,7 +430,7 @@ with abas[6]:
         novo["captacao"]["horario_inicial"] = h1
         novo["captacao"]["horario_final"] = h2
         novo["scoring"]["score_minimo"] = int(score_min)
-        novo["mensagem"] = {"remetente": remetente, "agencia": agencia, "proposta": proposta}
+        novo["mensagem"] = {"remetente": remetente, "cargo": cargo, "proposta": proposta}
         novo["segmentos"] = [s.strip() for s in segmentos_txt.splitlines() if s.strip()]
         cidades = []
         for linha in cidades_txt.splitlines():

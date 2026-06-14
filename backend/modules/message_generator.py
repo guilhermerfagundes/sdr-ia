@@ -56,7 +56,7 @@ def gerar_mensagem(lead: dict, cfg: dict | None = None) -> str:
     """Monta a mensagem personalizada de primeiro contato."""
     msg_cfg = (cfg or {}).get("mensagem", {}) if isinstance(cfg, dict) else {}
     remetente = msg_cfg.get("remetente") or "Guilherme"
-    agencia = msg_cfg.get("agencia") or ""
+    cargo = msg_cfg.get("cargo") or "estrategista de marketing"
     proposta = msg_cfg.get("proposta") or "atrair mais clientes pela internet"
 
     empresa = lead.get("empresa") or "sua empresa"
@@ -65,19 +65,19 @@ def gerar_mensagem(lead: dict, cfg: dict | None = None) -> str:
     gancho = gancho_oportunidade(lead.get("oportunidade_motivo"))
 
     saudacao = f"Oi {nome}! Tudo bem?" if nome else "Oi! Tudo bem?"
-    da_agencia = f", da {agencia}" if agencia else ""
     na_cidade = f" aí em {cidade}" if cidade else ""
 
     return (
         f"{saudacao} 👋\n\n"
-        f"Aqui é o {remetente}{da_agencia}. Encontrei a *{empresa}*{na_cidade} e {gancho}.\n\n"
+        f"Aqui é o {remetente}, {cargo}. Encontrei a *{empresa}*{na_cidade} e {gancho}.\n\n"
         f"Ajudo negócios como o seu a {proposta} — posso te mandar 2 ou 3 ideias "
         f"rápidas e sem compromisso? 😊"
     )
 
 
 def link_whatsapp(lead: dict, mensagem: str) -> str | None:
-    """Gera o link wa.me que abre o WhatsApp com a mensagem já digitada.
+    """Gera o link que abre a conversa no WhatsApp Web com a mensagem já digitada.
+    Usa web.whatsapp.com/send (vai direto pro chat, sem página intermediária).
     Devolve None se o lead não tiver telefone/WhatsApp."""
     bruto = lead.get("whatsapp") or lead.get("telefone") or ""
     tel = re.sub(r"\D", "", bruto)
@@ -85,4 +85,4 @@ def link_whatsapp(lead: dict, mensagem: str) -> str | None:
         return None
     if not tel.startswith("55"):
         tel = "55" + tel
-    return f"https://wa.me/{tel}?text={urllib.parse.quote(mensagem)}"
+    return f"https://web.whatsapp.com/send?phone={tel}&text={urllib.parse.quote(mensagem)}"

@@ -37,7 +37,7 @@ scoring:
 # Dados usados nas mensagens de abordagem (modo semi-automático)
 mensagem:
   remetente: "Guilherme"                                  # como você assina
-  agencia: "DemandOS"                                     # nome da sua agência (ou deixe vazio)
+  cargo: "estrategista de marketing"                      # seu título/como se apresenta
   proposta: "atrair mais clientes pela internet"          # o que você oferece
 
 # Empresas que contenham estas palavras no nome/categoria são DESCARTADAS.
@@ -50,3 +50,13 @@ exclusoes:
     - "assessoria de marketing"
     - "freelancer"
     - "social media"
+    # Grandes franquias/redes: difícil chegar no dono, foco em independentes
+    - "sorridents"
+    - "odonto company"
+    - "odontocompany"
+    - "oral unic"
+    - "oralunic"
+    - "imbra"
+    - "orthopride"
+    - "dental uni"
+    - "uniodonto"

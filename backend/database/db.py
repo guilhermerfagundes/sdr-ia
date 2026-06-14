@@ -15,9 +15,15 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
+
+# Colunas adicionadas depois da criação inicial (migração leve, idempotente)
+_MIGRACOES = [
+    "ALTER TABLE leads ADD COLUMN tags TEXT",
+]
 
 from backend.config import config
 
@@ -49,6 +55,7 @@ leads = Table(
     Column("ultima_acao", Text),
     Column("proxima_acao", Text),
     Column("dados_enriquecimento", Text),
+    Column("tags", Text),  # etiquetas separadas por vírgula
     Column("created_at", Text),
     Column("updated_at", Text),
 )
@@ -96,4 +103,12 @@ def init_db(engine: Engine | None = None) -> Engine:
     if engine is None:
         engine = get_engine()
     metadata.create_all(engine)
+    # Migrações leves: adiciona colunas novas em bancos já existentes.
+    # Cada ALTER roda na sua própria transação; se a coluna já existe, ignora.
+    for ddl in _MIGRACOES:
+        try:
+            with engine.begin() as conn:
+                conn.execute(text(ddl))
+        except Exception:  # noqa: BLE001 - coluna provavelmente já existe
+            pass
     return engine
