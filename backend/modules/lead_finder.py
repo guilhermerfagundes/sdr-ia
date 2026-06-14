@@ -157,6 +157,139 @@ def buscar_google_places(
     return resumo
 
 
+# ---- OpenStreetMap / Overpass (fonte GRATUITA, sem chave) -------------------
+#
+# Busca empresas reais a partir do OpenStreetMap. Não precisa de API key nem
+# cartão de crédito. Cobertura menor que o Google Maps (nem toda empresa tem
+# telefone/site no OSM), mas funciona em tempo real e de graça.
+
+NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
+OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OSM_HEADERS = {"User-Agent": "DemandOS-AI/1.0 (geracao de demanda B2B)"}
+
+# Mapeia o segmento (em português) para as tags do OpenStreetMap
+_OSM_TAGS = {
+    "dentista": ["amenity=dentist", "healthcare=dentist"],
+    "advogado": ["office=lawyer"],
+    "advocacia": ["office=lawyer"],
+    "clinica estetica": ["shop=beauty", "amenity=clinic"],
+    "estetica": ["shop=beauty"],
+    "contabilidade": ["office=accountant", "office=tax_advisor"],
+    "contador": ["office=accountant"],
+    "arquiteto": ["office=architect"],
+    "arquitetura": ["office=architect"],
+    "academia": ["leisure=fitness_centre", "leisure=sports_centre"],
+    "medico": ["amenity=doctors", "healthcare=doctor"],
+    "clinica": ["amenity=clinic", "amenity=doctors"],
+    "restaurante": ["amenity=restaurant"],
+    "imobiliaria": ["office=estate_agent"],
+    "psicologo": ["healthcare=psychotherapist", "office=psychologist"],
+    "veterinario": ["amenity=veterinary"],
+    "veterinaria": ["amenity=veterinary"],
+    "cabeleireiro": ["shop=hairdresser"],
+    "salao de beleza": ["shop=beauty", "shop=hairdresser"],
+    "petshop": ["shop=pet"],
+    "farmacia": ["amenity=pharmacy"],
+    "barbearia": ["shop=hairdresser"],
+    "consultoria": ["office=consulting", "office=company"],
+    "nutricionista": ["healthcare=nutrition_counselling", "amenity=clinic"],
+}
+
+
+@retry(tentativas=3, espera_seg=2.0, excecoes=(requests.RequestException,))
+def _geocodificar(cidade: str, estado: str) -> tuple[float, float, float, float] | None:
+    """Devolve a bounding box (sul, oeste, norte, leste) da cidade via Nominatim."""
+    consulta = ", ".join([p for p in (cidade, estado, "Brasil") if p])
+    resp = requests.get(
+        NOMINATIM_URL,
+        params={"q": consulta, "format": "json", "limit": 1},
+        headers=OSM_HEADERS,
+        timeout=20,
+    )
+    resp.raise_for_status()
+    dados = resp.json()
+    if not dados:
+        return None
+    bb = dados[0]["boundingbox"]  # [sul, norte, oeste, leste] (strings)
+    return (float(bb[0]), float(bb[2]), float(bb[1]), float(bb[3]))
+
+
+@retry(tentativas=2, espera_seg=3.0, excecoes=(requests.RequestException,))
+def _consultar_overpass(query: str) -> list[dict]:
+    resp = requests.post(OVERPASS_URL, data={"data": query}, headers=OSM_HEADERS, timeout=60)
+    resp.raise_for_status()
+    return resp.json().get("elements", [])
+
+
+def buscar_openstreetmap(
+    engine: Engine, segmento: str, cidade: str, estado: str = "", limite: int = 15
+) -> dict:
+    """
+    Busca empresas reais no OpenStreetMap (grátis, sem chave) e salva os leads.
+    Devolve {encontrados, novos, atualizados, descartados}.
+    """
+    bbox = _geocodificar(cidade, estado)
+    if not bbox:
+        raise RuntimeError(
+            f"Não encontrei a cidade '{cidade}'. Confira o nome/estado nas Configurações."
+        )
+    sul, oeste, norte, leste = bbox
+    area = f"{sul},{oeste},{norte},{leste}"
+
+    seletores = _OSM_TAGS.get(segmento.strip().lower())
+    partes = []
+    if seletores:
+        for sel in seletores:
+            chave, valor = sel.split("=", 1)
+            partes.append(f'node["{chave}"="{valor}"]({area});')
+            partes.append(f'way["{chave}"="{valor}"]({area});')
+    else:
+        # fallback: empresas cujo nome contém o termo buscado
+        termo = segmento.replace('"', "")
+        partes.append(f'node["name"~"{termo}",i]["shop"]({area});')
+        partes.append(f'node["name"~"{termo}",i]["office"]({area});')
+        partes.append(f'node["name"~"{termo}",i]["amenity"]({area});')
+
+    query = f"[out:json][timeout:50];({''.join(partes)});out center tags {max(limite * 4, 40)};"
+    logger.info("Buscando no OpenStreetMap: %s em %s/%s", segmento, cidade, estado)
+    elementos = _consultar_overpass(query)
+
+    resumo = {"encontrados": 0, "novos": 0, "atualizados": 0, "descartados": 0}
+    processados = 0
+    for el in elementos:
+        if processados >= limite:
+            break
+        tags = el.get("tags", {})
+        nome = tags.get("name")
+        if not nome:
+            continue
+        processados += 1
+        resumo["encontrados"] += 1
+        lead = {
+            "empresa": nome,
+            "telefone": tags.get("phone") or tags.get("contact:phone"),
+            "whatsapp": tags.get("contact:whatsapp"),
+            "site": tags.get("website") or tags.get("contact:website"),
+            "instagram": tags.get("contact:instagram") or tags.get("instagram"),
+            "email": tags.get("email") or tags.get("contact:email"),
+            "cidade": cidade,
+            "estado": estado,
+            "segmento": segmento,
+            "origem": "OpenStreetMap",
+        }
+        _, acao = processar_lead(engine, lead)
+        if acao == "novo":
+            resumo["novos"] += 1
+        elif acao == "atualizado":
+            resumo["atualizados"] += 1
+        elif acao == "descartado":
+            resumo["descartados"] += 1
+
+    repository.registrar_run(engine, segmento=segmento, cidade=cidade, estado=estado, **resumo)
+    logger.info("Resultado OSM '%s em %s': %s", segmento, cidade, resumo)
+    return resumo
+
+
 # ---- Importação de CSV ------------------------------------------------------
 
 # Mapeia variações de cabeçalho de coluna para o nome interno do campo

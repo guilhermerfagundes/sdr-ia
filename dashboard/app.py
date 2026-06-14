@@ -35,7 +35,7 @@ from backend.database import db  # noqa: E402
 from backend.database import repository  # noqa: E402
 from backend.modules import crm, lead_finder, reporting  # noqa: E402
 
-st.set_page_config(page_title="SDR IA — Painel", page_icon="🎯", layout="wide")
+st.set_page_config(page_title="DemandOS AI", page_icon="🧭", layout="wide")
 
 st.markdown(
     """
@@ -85,16 +85,10 @@ with st.sidebar:
     st.caption("Banco: " + ("Postgres (nuvem)" if os.getenv("DATABASE_URL") else "SQLite (local)"))
 
 st.markdown(
-    '<div class="hero"><h1>🎯 SDR IA</h1>'
-    "<p>Painel de prospecção B2B — encontre, qualifique e gerencie seus leads</p></div>",
+    '<div class="hero"><h1>🧭 DemandOS AI</h1>'
+    "<p>Seu sistema operacional de geração de demanda</p></div>",
     unsafe_allow_html=True,
 )
-
-if not config.tem_chave_google():
-    st.warning(
-        "Chave do Google Places **não configurada** — a aba *Buscar leads* fica "
-        "indisponível, mas você pode usar tudo via *Importar CSV*."
-    )
 
 abas = st.tabs(
     ["📊 Visão geral", "📋 Leads", "🔎 Buscar leads", "📥 Importar CSV", "📈 Relatórios", "⚙️ Configurações"]
@@ -187,24 +181,38 @@ with abas[1]:
 
 # --------------------------------------------------------------- Buscar leads
 with abas[2]:
-    st.subheader("Buscar no Google Maps")
-    if not config.tem_chave_google():
-        st.error("Configure a GOOGLE_PLACES_API_KEY para usar esta aba.")
-    else:
-        segmentos = cfg.get("segmentos", [])
-        cidades = [f"{c['cidade']}/{c['estado']}" for c in cfg.get("cidades", [])]
-        cg1, cg2, cg3 = st.columns(3)
-        seg = cg1.selectbox("Segmento", segmentos or ["(defina em Configurações)"])
-        cidade_sel = cg2.selectbox("Cidade", cidades or ["(defina em Configurações)"])
-        limite = cg3.number_input("Máx. de leads", 1, 60, cfg["captacao"]["leads_por_dia"])
-        if st.button("🔎 Buscar agora", disabled=not (segmentos and cidades)):
-            cidade, estado = (cidade_sel.split("/") + [""])[:2]
-            with st.spinner("Buscando e analisando os sites dos leads..."):
+    st.subheader("🔎 Buscar leads em tempo real")
+    st.caption(
+        "Escolha o segmento e a cidade e clique em **Buscar agora**. O DemandOS vai "
+        "encontrar empresas reais, analisar o site de cada uma, pontuar e salvar — "
+        "evitando duplicados automaticamente."
+    )
+    segmentos = cfg.get("segmentos", [])
+    cidades = [f"{c['cidade']}/{c['estado']}" for c in cfg.get("cidades", [])]
+    fontes = ["OpenStreetMap (grátis)"]
+    if config.tem_chave_google():
+        fontes.append("Google Maps")
+
+    cg0, cg1, cg2, cg3 = st.columns([1.6, 1.2, 1.2, 0.8])
+    fonte = cg0.selectbox("Fonte", fontes)
+    seg = cg1.selectbox("Segmento", segmentos or ["(defina em Configurações)"])
+    cidade_sel = cg2.selectbox("Cidade", cidades or ["(defina em Configurações)"])
+    limite = cg3.number_input("Máx.", 1, 60, 15)
+
+    if st.button("🚀 Buscar agora", type="primary", disabled=not (segmentos and cidades)):
+        cidade, estado = (cidade_sel.split("/") + [""])[:2]
+        with st.spinner(f"Buscando '{seg}' em {cidade} e analisando os sites em tempo real..."):
+            if fonte.startswith("Google"):
                 resumo = lead_finder.buscar_google_places(engine, seg, cidade, estado, int(limite))
-            st.success(
-                f"Encontrados {resumo['encontrados']} · novos {resumo['novos']} · "
-                f"atualizados {resumo['atualizados']} · descartados {resumo['descartados']}"
-            )
+            else:
+                resumo = lead_finder.buscar_openstreetmap(engine, seg, cidade, estado, int(limite))
+        st.success(
+            f"✅ Encontrados {resumo['encontrados']} · novos {resumo['novos']} · "
+            f"atualizados {resumo['atualizados']} · descartados {resumo['descartados']}"
+        )
+        if resumo["novos"]:
+            st.balloons()
+        st.info("Veja os resultados na aba **📋 Leads**.")
 
 # -------------------------------------------------------------- Importar CSV
 with abas[3]:

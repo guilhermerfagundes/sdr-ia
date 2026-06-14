@@ -44,7 +44,7 @@ def exigir_login():
     (para o botão de logout). Interrompe a renderização se não logado."""
     cfg = _carregar_config()
     if not cfg:
-        st.title("🔒 SDR IA")
+        st.title("🧭 DemandOS AI")
         st.error(
             "Login ainda não configurado.\n\n"
             "No seu computador, rode uma vez:\n\n"
@@ -59,6 +59,14 @@ def exigir_login():
         cfg["cookie"]["key"],
         cfg["cookie"].get("expiry_days", 30),
     )
+    if not st.session_state.get("authentication_status"):
+        st.markdown(
+            "<div style='text-align:center;margin:8px 0 4px'>"
+            "<h1 style='margin:0'>🧭 DemandOS AI</h1>"
+            "<p style='color:#64748b;margin:4px 0 18px'>Seu sistema operacional de geração de demanda</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
     authenticator.login(location="main")
 
     status = st.session_state.get("authentication_status")

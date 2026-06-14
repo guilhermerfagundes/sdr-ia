@@ -1,7 +1,8 @@
-# SDR IA — Sistema de Prospecção (Fase 1: Núcleo)
+# 🧭 DemandOS AI — Seu sistema operacional de geração de demanda
 
-Sistema para uma agência de marketing **encontrar, qualificar e organizar leads B2B**.
-Esta é a **Fase 1** — o núcleo que já funciona de ponta a ponta.
+Sistema para **encontrar, qualificar e organizar leads B2B** automaticamente.
+Busca empresas reais em tempo real (OpenStreetMap grátis, ou Google Maps), analisa o
+site, pontua de 0 a 100, detecta a oportunidade de abordagem e organiza tudo num CRM.
 
 👉 **Não sabe por onde começar?** Leia o **[GUIA-INSTALACAO.md](GUIA-INSTALACAO.md)**.
 👉 **Já instalado?** Veja o **[GUIA-USO.md](GUIA-USO.md)**.
