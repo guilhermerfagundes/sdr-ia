@@ -207,46 +207,37 @@ with abas[1]:
 
 # ------------------------------------------------------------------ Pipeline
 with abas[2]:
-    st.subheader("📌 Pipeline — arraste os leads entre as etapas")
+    st.subheader("📌 Pipeline")
     st.caption(
-        "Arraste cada lead para a próxima etapa do funil — as mudanças salvam sozinhas. "
-        "(Leads aprovados na Abordagem já entram em *Contato Enviado* automaticamente.)"
+        "Seu funil em colunas. Em cada card, escolha **mover →** para mandar o lead "
+        "para outra etapa (salva na hora). Aprovados na Abordagem entram em *Contato "
+        "Enviado* automaticamente."
     )
     leads_all = repository.listar_leads(engine)
     if not leads_all:
         st.info("Nenhum lead ainda. Use a aba **🔎 Buscar leads** para começar.")
     else:
-        try:
-            from streamlit_sortables import sort_items
-
-            id_por_rotulo = {}
-            colunas = []
-            for etapa in crm.TODOS_STATUS:
-                itens = []
-                for l in leads_all:
-                    if (l["status"] or "Novo Lead") == etapa:
-                        rotulo = f"#{l['id']} {l['empresa']} · {l['score']}"
-                        itens.append(rotulo)
-                        id_por_rotulo[rotulo] = l["id"]
-                colunas.append({"header": f"{etapa} ({len(itens)})", "items": itens})
-
-            novo = sort_items(colunas, multi_containers=True, key="kanban_pipeline")
-
-            for col in novo:
-                etapa = col["header"].rsplit(" (", 1)[0]
-                for rotulo in col["items"]:
-                    lid = id_por_rotulo.get(rotulo)
-                    if lid:
-                        atual = repository.obter_lead(engine, lid)
-                        if atual and (atual["status"] or "Novo Lead") != etapa:
-                            repository.atualizar_campos(
-                                engine, lid, {"status": etapa, "ultima_acao": f"Movido para {etapa}"}
-                            )
-        except ModuleNotFoundError:
-            st.warning(
-                "O componente de arrastar não está disponível nesta versão. "
-                "Você ainda pode mover os leads pela aba **📋 Leads**."
-            )
+        estagios = crm.PIPELINE  # etapas principais do funil (em colunas)
+        colunas = st.columns(len(estagios))
+        for coluna, etapa in zip(colunas, estagios):
+            grupo = [l for l in leads_all if (l["status"] or "Novo Lead") == etapa]
+            coluna.markdown(f"**{etapa}**")
+            coluna.caption(f"{len(grupo)} lead(s)")
+            for l in grupo:
+                with coluna.container(border=True):
+                    st.markdown(f"**{l['empresa']}**")
+                    extra = f" · 🏷️ {l['tags']}" if l.get("tags") else ""
+                    st.caption(f"⭐ {l['score']}{extra}")
+                    destinos = [e for e in crm.TODOS_STATUS if e != etapa]
+                    novo = st.selectbox(
+                        "mover →", ["—"] + destinos,
+                        key=f"mv_{l['id']}", label_visibility="collapsed",
+                    )
+                    if novo != "—":
+                        repository.atualizar_campos(
+                            engine, l["id"], {"status": novo, "ultima_acao": f"Movido para {novo}"}
+                        )
+                        st.rerun()
 
 # ----------------------------------------------------------------- Abordagem
 with abas[3]:
