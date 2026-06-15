@@ -296,64 +296,88 @@ with abas[3]:
 with abas[4]:
     st.subheader("🔎 Buscar leads em tempo real")
     st.caption(
-        "Escolha o segmento, a cidade e **quantos leads** quer; clique em **Buscar agora**. "
-        "O DemandOS encontra empresas reais, analisa o site, pontua, deduplica e salva."
+        "Digite **qualquer nicho e cidade** (campo livre), escolha **quantos leads** quer e "
+        "clique em **Buscar agora**. O DemandOS encontra empresas reais, analisa, pontua e salva."
     )
-    segmentos = cfg.get("segmentos", [])
-    cidades_cfg = cfg.get("cidades", [])
-    cidades = [f"{c['cidade']}/{c['estado']}" for c in cidades_cfg]
     fontes = ["OpenStreetMap (grátis)"]
     if config.tem_chave_google():
         fontes.append("Google Maps")
 
-    cg0, cg1, cg2, cg3 = st.columns([1.5, 1.2, 1.2, 1.1])
-    fonte = cg0.selectbox("Fonte", fontes)
-    seg = cg1.selectbox("Segmento", segmentos or ["(defina em Configurações)"])
-    cidade_sel = cg2.selectbox("Cidade", cidades or ["(defina em Configurações)"])
-    limite = cg3.number_input("Quantos leads buscar", 1, 60, 15)
+    c0, c1, c2, c3 = st.columns([1.4, 1.7, 1.4, 1])
+    fonte = c0.selectbox("Fonte", fontes, key="fonte_busca")
+    seg = c1.text_input("Nicho / segmento", placeholder="ex.: dentista, restaurante, academia, pet shop")
+    cidade = c2.text_input("Cidade", placeholder="ex.: Osasco")
+    qtd = c3.number_input("Quantos leads", 1, 60, 15, key="qtd_busca")
+
+    e1, e2 = st.columns([1, 3])
+    uf = e1.text_input("Estado (UF)", placeholder="SP", max_chars=2)
+    excluir = e2.text_input(
+        "Ignorar empresas com estas palavras (separe por vírgula)",
+        placeholder="ex.: sorridents, franquia, unidade, rede",
+    )
 
     _usa_google = fonte.startswith("Google")
+    _extras = [x.strip() for x in excluir.split(",") if x.strip()]
 
-    def _buscar(s, ci, uf, n):
+    def _buscar(s, ci, ufv, n):
         if _usa_google:
-            return lead_finder.buscar_google_places(engine, s, ci, uf, n)
-        return lead_finder.buscar_openstreetmap(engine, s, ci, uf, n)
+            return lead_finder.buscar_google_places(engine, s, ci, ufv, n, exclusoes_extra=_extras)
+        return lead_finder.buscar_openstreetmap(engine, s, ci, ufv, n, exclusoes_extra=_extras)
 
-    if st.button("🚀 Buscar agora", type="primary", disabled=not (segmentos and cidades)):
-        cidade, estado = (cidade_sel.split("/") + [""])[:2]
-        with st.spinner(f"Buscando '{seg}' em {cidade} e analisando os sites em tempo real..."):
-            resumo = _buscar(seg, cidade, estado, int(limite))
-        resumo["seg"] = seg
-        resumo["cidade"] = cidade
+    if st.button("🚀 Buscar agora", type="primary", disabled=not (seg.strip() and cidade.strip())):
+        with st.spinner(f"Buscando '{seg}' em {cidade} ao vivo..."):
+            resumo = _buscar(seg.strip(), cidade.strip(), uf.strip(), int(qtd))
+        resumo["seg"] = seg.strip()
+        resumo["cidade"] = cidade.strip()
         st.session_state["busca_result"] = resumo
         st.rerun()
 
     st.divider()
-    st.markdown("##### ⚡ Busca em lote — varre todos os seus segmentos e cidades")
-    st.caption("Diga quantos leads NOVOS você quer e o DemandOS vai buscando em tudo até alcançar.")
-    alvo = st.number_input("Quantos leads novos trazer", 5, 100, 20, key="alvo_lote")
-    if st.button("⚡ Buscar em lote", disabled=not (segmentos and cidades)):
-        prog = st.progress(0.0, text="Iniciando...")
-        total = {"encontrados": 0, "novos": 0, "atualizados": 0, "descartados": 0}
-        combos = [(s, c) for c in cidades_cfg for s in segmentos]
-        for s, c in combos:
-            if total["novos"] >= alvo:
-                break
-            prog.progress(
-                min(total["novos"] / alvo, 0.99),
-                text=f"Buscando {s} em {c['cidade']}... ({total['novos']}/{alvo} novos)",
-            )
-            try:
-                r = _buscar(s, c["cidade"], c["estado"], min(int(alvo), 12))
-                for k in total:
-                    total[k] += r.get(k, 0)
-            except Exception as e:  # noqa: BLE001
-                st.warning(f"Pulei {s} em {c['cidade']}: {e}")
-        prog.progress(1.0, text="Concluído!")
-        total["seg"] = "vários segmentos"
-        total["cidade"] = "todas as suas cidades"
-        st.session_state["busca_result"] = total
-        st.rerun()
+    st.markdown("##### ⚡ Busca em lote — vários nichos e cidades de uma vez")
+    bl1, bl2 = st.columns(2)
+    nichos_txt = bl1.text_area("Nichos (um por linha)", placeholder="dentista\nadvogado\narquiteto")
+    cidades_txt = bl2.text_area("Cidades (Cidade, UF — uma por linha)", placeholder="Osasco, SP\nBarueri, SP")
+    alvo = st.number_input("Quantos leads novos trazer no total", 5, 200, 30, key="alvo_lote")
+    if st.button("⚡ Buscar em lote"):
+        nichos = [x.strip() for x in nichos_txt.splitlines() if x.strip()]
+        locais = []
+        for ln in cidades_txt.splitlines():
+            ln = ln.strip()
+            if not ln:
+                continue
+            if "," in ln:
+                ci, u = ln.split(",", 1)
+                locais.append((ci.strip(), u.strip()))
+            else:
+                locais.append((ln, ""))
+        if not nichos or not locais:
+            st.warning("Preencha pelo menos um nicho e uma cidade.")
+        else:
+            prog = st.progress(0.0, text="Iniciando...")
+            total = {"encontrados": 0, "novos": 0, "atualizados": 0, "descartados": 0}
+            parar = False
+            for ci, u in locais:
+                if parar:
+                    break
+                for s in nichos:
+                    if total["novos"] >= alvo:
+                        parar = True
+                        break
+                    prog.progress(
+                        min(total["novos"] / alvo, 0.99),
+                        text=f"Buscando {s} em {ci}... ({total['novos']}/{alvo} novos)",
+                    )
+                    try:
+                        r = _buscar(s, ci, u, min(int(alvo), 12))
+                        for k in total:
+                            total[k] += r.get(k, 0)
+                    except Exception as ex:  # noqa: BLE001
+                        st.warning(f"Pulei {s} em {ci}: {ex}")
+            prog.progress(1.0, text="Concluído!")
+            total["seg"] = "vários nichos"
+            total["cidade"] = "busca em lote"
+            st.session_state["busca_result"] = total
+            st.rerun()
 
 # -------------------------------------------------------------- Importar CSV
 with abas[5]:

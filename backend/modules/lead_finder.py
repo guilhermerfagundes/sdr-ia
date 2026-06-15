@@ -30,8 +30,10 @@ logger = get_logger()
 # ---- Filtro de ICP (exclusões) ---------------------------------------------
 
 
-def _deve_excluir(nome: str, categorias: str = "") -> bool:
-    palavras = config.get_config().get("exclusoes", {}).get("palavras_chave", [])
+def _deve_excluir(nome: str, categorias: str = "", extra: list | None = None) -> bool:
+    palavras = list(config.get_config().get("exclusoes", {}).get("palavras_chave", []))
+    if extra:
+        palavras += list(extra)
     alvo = f"{nome} {categorias}".lower()
     return any(p.lower() in alvo for p in palavras if p)
 
@@ -39,12 +41,14 @@ def _deve_excluir(nome: str, categorias: str = "") -> bool:
 # ---- Pipeline comum de processamento de um lead ----------------------------
 
 
-def processar_lead(engine: Engine, lead: dict, enriquecer: bool = True) -> tuple[int | None, str]:
+def processar_lead(
+    engine: Engine, lead: dict, enriquecer: bool = True, exclusoes_extra: list | None = None
+) -> tuple[int | None, str]:
     """
     Aplica exclusão → enriquecimento → score → oportunidade → dedup/salvar.
     Devolve (lead_id, acao) com acao ∈ {"novo","atualizado","descartado"}.
     """
-    if _deve_excluir(lead.get("empresa", ""), lead.get("segmento", "")):
+    if _deve_excluir(lead.get("empresa", ""), lead.get("segmento", ""), exclusoes_extra):
         repository.registrar_evento(
             engine, "captacao", f"Descartado por exclusão: {lead.get('empresa')}"
         )
@@ -113,6 +117,7 @@ def buscar_google_places(
     cidade: str,
     estado: str = "",
     limite: int = 20,
+    exclusoes_extra: list | None = None,
 ) -> dict:
     """
     Busca empresas no Google Maps e salva os leads.
@@ -144,7 +149,7 @@ def buscar_google_places(
             "segmento": segmento,
             "origem": "Google Maps",
         }
-        _, acao = processar_lead(engine, lead)
+        _, acao = processar_lead(engine, lead, exclusoes_extra=exclusoes_extra)
         if acao == "novo":
             resumo["novos"] += 1
         elif acao == "atualizado":
@@ -188,11 +193,42 @@ _OSM_TAGS = {
     "veterinaria": ["amenity=veterinary"],
     "cabeleireiro": ["shop=hairdresser"],
     "salao de beleza": ["shop=beauty", "shop=hairdresser"],
+    "salao": ["shop=beauty", "shop=hairdresser"],
     "petshop": ["shop=pet"],
+    "pet shop": ["shop=pet"],
     "farmacia": ["amenity=pharmacy"],
     "barbearia": ["shop=hairdresser"],
     "consultoria": ["office=consulting", "office=company"],
     "nutricionista": ["healthcare=nutrition_counselling", "amenity=clinic"],
+    "restaurante": ["amenity=restaurant"],
+    "lanchonete": ["amenity=fast_food"],
+    "bar": ["amenity=bar", "amenity=pub"],
+    "cafe": ["amenity=cafe"],
+    "cafeteria": ["amenity=cafe"],
+    "padaria": ["shop=bakery"],
+    "hotel": ["tourism=hotel"],
+    "pousada": ["tourism=guest_house", "tourism=hotel"],
+    "loja de roupas": ["shop=clothes"],
+    "roupas": ["shop=clothes"],
+    "moda": ["shop=clothes"],
+    "otica": ["shop=optician"],
+    "ótica": ["shop=optician"],
+    "joalheria": ["shop=jewelry"],
+    "mercado": ["shop=supermarket", "shop=convenience"],
+    "supermercado": ["shop=supermarket"],
+    "oficina": ["shop=car_repair"],
+    "mecanica": ["shop=car_repair"],
+    "autoescola": ["amenity=driving_school"],
+    "auto escola": ["amenity=driving_school"],
+    "seguros": ["office=insurance"],
+    "corretor de seguros": ["office=insurance"],
+    "tatuagem": ["shop=tattoo"],
+    "estudio de tatuagem": ["shop=tattoo"],
+    "fisioterapia": ["healthcare=physiotherapist"],
+    "pizzaria": ["amenity=restaurant"],
+    "escola": ["amenity=school"],
+    "creche": ["amenity=kindergarten"],
+    "loja": ["shop"],
 }
 
 
@@ -222,7 +258,12 @@ def _consultar_overpass(query: str) -> list[dict]:
 
 
 def buscar_openstreetmap(
-    engine: Engine, segmento: str, cidade: str, estado: str = "", limite: int = 15
+    engine: Engine,
+    segmento: str,
+    cidade: str,
+    estado: str = "",
+    limite: int = 15,
+    exclusoes_extra: list | None = None,
 ) -> dict:
     """
     Busca empresas reais no OpenStreetMap (grátis, sem chave) e salva os leads.
@@ -231,7 +272,7 @@ def buscar_openstreetmap(
     bbox = _geocodificar(cidade, estado)
     if not bbox:
         raise RuntimeError(
-            f"Não encontrei a cidade '{cidade}'. Confira o nome/estado nas Configurações."
+            f"Não encontrei a cidade '{cidade}'. Confira o nome e o estado (UF)."
         )
     sul, oeste, norte, leste = bbox
     area = f"{sul},{oeste},{norte},{leste}"
@@ -240,31 +281,33 @@ def buscar_openstreetmap(
     partes = []
     if seletores:
         for sel in seletores:
-            chave, valor = sel.split("=", 1)
-            partes.append(f'node["{chave}"="{valor}"]({area});')
-            partes.append(f'way["{chave}"="{valor}"]({area});')
+            if "=" in sel:
+                chave, valor = sel.split("=", 1)
+                filtro = f'["{chave}"="{valor}"]'
+            else:  # seletor só com a chave (ex.: "shop") = qualquer valor
+                filtro = f'["{sel}"]'
+            partes.append(f"node{filtro}({area});")
+            partes.append(f"way{filtro}({area});")
     else:
-        # fallback: empresas cujo nome contém o termo buscado
-        termo = segmento.replace('"', "")
-        partes.append(f'node["name"~"{termo}",i]["shop"]({area});')
-        partes.append(f'node["name"~"{termo}",i]["office"]({area});')
-        partes.append(f'node["name"~"{termo}",i]["amenity"]({area});')
+        # fallback: empresas cujo NOME contém o termo, em qualquer tipo de POI
+        termo = segmento.replace('"', "").replace("\\", "")
+        for chave in ("shop", "office", "amenity", "craft", "healthcare", "leisure"):
+            partes.append(f'node["name"~"{termo}",i]["{chave}"]({area});')
+            partes.append(f'way["name"~"{termo}",i]["{chave}"]({area});')
 
-    query = f"[out:json][timeout:50];({''.join(partes)});out center tags {max(limite * 4, 40)};"
+    query = f"[out:json][timeout:50];({''.join(partes)});out center tags {max(limite * 4, 60)};"
     logger.info("Buscando no OpenStreetMap: %s em %s/%s", segmento, cidade, estado)
     elementos = _consultar_overpass(query)
 
     resumo = {"encontrados": 0, "novos": 0, "atualizados": 0, "descartados": 0}
-    processados = 0
     for el in elementos:
-        if processados >= limite:
+        # para quando atingir a QUANTIDADE de leads bons (descartados não contam)
+        if (resumo["novos"] + resumo["atualizados"]) >= limite:
             break
         tags = el.get("tags", {})
         nome = tags.get("name")
         if not nome:
             continue
-        processados += 1
-        resumo["encontrados"] += 1
         lead = {
             "empresa": nome,
             "telefone": tags.get("phone") or tags.get("contact:phone"),
@@ -277,11 +320,13 @@ def buscar_openstreetmap(
             "segmento": segmento,
             "origem": "OpenStreetMap",
         }
-        _, acao = processar_lead(engine, lead)
+        _, acao = processar_lead(engine, lead, exclusoes_extra=exclusoes_extra)
         if acao == "novo":
             resumo["novos"] += 1
+            resumo["encontrados"] += 1
         elif acao == "atualizado":
             resumo["atualizados"] += 1
+            resumo["encontrados"] += 1
         elif acao == "descartado":
             resumo["descartados"] += 1
 
